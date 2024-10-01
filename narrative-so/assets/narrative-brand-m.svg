@@ -1,0 +1,22 @@
+<svg width="51" height="51" xmlns="http://www.w3.org/2000/svg" xmlns:svg="http://www.w3.org/2000/svg">
+ <title>asdasfs fsdf sdf sfd sdf</title>
+ <!-- Generator: Sketch 48.1 (47250) - http://www.bohemiancoding.com/sketch -->
+ <desc>Created with Sketch.</desc>
+ <defs>
+  <linearGradient id="linearGradient-1" y2="100%" x2="100%" y1="0%" x1="0%">
+   <stop offset="0%" stop-color="#FF846A"/>
+   <stop offset="100%" stop-color="#F05D73"/>
+  </linearGradient>
+ </defs>
+ <g>
+  <title>Layer 1</title>
+  <g fill-rule="evenodd" fill="none" id="Website">
+   <g id="Header">
+    <g id="Group-14">
+     <rect rx="17" height="51" width="51" y="0" x="0.06561" fill="url(#linearGradient-1)" id="Rectangle-3"/>
+     <path fill="#FFFFFF" id="narrative-black-25x25" d="m34.06561,38l-10,0l-4,0l0,-18l4,0l0,14l10,0l0,-21l4,0l0,25l-4,0zm-7,-21l-10,0l0,21l-4,0l0,-25l4,0l14,0l0,4l0,14l-4,0l0,-14z"/>
+    </g>
+   </g>
+  </g>
+ </g>
+</svg>
