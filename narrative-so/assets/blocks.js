@@ -37,7 +37,7 @@
     }
 
     blocks.registerBlockType('narrative/block', {
-        title: __('Narrative', 'narrative-publisher'),
+        title: __('Narrative', 'narrative-so'),
         icon: iconEl,
         attributes: {
             narrative_script: {
@@ -60,7 +60,7 @@
                 return el(
                     'b',
                     null,
-                    __('It\'s not a narrative post', 'narrative-publisher')
+                    __('It\'s not a narrative post', 'narrative-so')
                 );
             }
             try {
@@ -91,12 +91,12 @@
                             el(
                                 'a',
                                 {
-                                    placeholder: __('(optional)', 'narrative-publisher'),
+                                    placeholder: __('(optional)', 'narrative-so'),
                                     href: 'narrative-app://open/' + post_id,
                                     target: '_blank',
                                     className: 'narrative_open_app_button components-button is-button is-primary'
                                 },
-                                __('Edit in Narrative', 'narrative-publisher')
+                                __('Edit in Narrative', 'narrative-so')
                             )
                         )
                     )

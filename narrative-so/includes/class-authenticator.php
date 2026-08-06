@@ -24,15 +24,31 @@ class Authenticator {
 	}
 
 	public function checkCode( $secret, $code ) {
+
+		if ( ! is_string( $code ) || '' === $code ) {
+			return false;
+		}
+
 		$time = floor( time() / 30 );
+
+		$valid = false;
+
 		for ( $i = - 1; $i <= 1; $i ++ ) {
 
-			if ( $this->getCode( $secret, $time + $i ) == $code ) {
-				return true;
+			/*
+			 * hash_equals(), not ==. Both operands are numeric strings, so loose
+			 * comparison compared them as numbers and treated "012345" and
+			 * "12345" as the same code. It is also constant time.
+			 *
+			 * The loop deliberately runs to completion rather than returning
+			 * early, so the time taken does not reveal which window matched.
+			 */
+			if ( hash_equals( (string) $this->getCode( $secret, $time + $i ), $code ) ) {
+				$valid = true;
 			}
 		}
 
-		return false;
+		return $valid;
 
 	}
 
@@ -51,8 +67,8 @@ class Authenticator {
 		$offset = ord( substr( $hash, - 1 ) );
 		$offset = $offset & 0xF;
 
-		$truncatedHash = self::hashToInt( $hash, $offset ) & 0x7FFFFFFF;
-		$pinValue      = str_pad( $truncatedHash % self::$PIN_MODULO, 6, "0", STR_PAD_LEFT );;
+		$truncatedHash = $this->hashToInt( $hash, $offset ) & 0x7FFFFFFF;
+		$pinValue      = str_pad( $truncatedHash % self::$PIN_MODULO, 6, "0", STR_PAD_LEFT );
 
 		return $pinValue;
 	}
@@ -62,28 +78,6 @@ class Authenticator {
 		$val2  = unpack( "N", substr( $input, 0, 4 ) );
 
 		return $val2[1];
-	}
-
-	public function getUrl( $user, $hostname, $secret ) {
-		$url        = sprintf( "otpauth://totp/%s@%s?secret=%s", $user, $hostname, $secret );
-		$encoder    = "https://www.google.com/chart?chs=200x200&chld=M|0&cht=qr&chl=";
-		$encoderURL = sprintf( "%sotpauth://totp/%s@%s&secret=%s", $encoder, $user, $hostname, $secret );
-
-		return $encoderURL;
-
-	}
-
-	public function generateSecret() {
-		$secret = "";
-		for ( $i = 1; $i <= self::$SECRET_LENGTH; $i ++ ) {
-			$c      = rand( 0, 255 );
-			$secret .= pack( "c", $c );
-		}
-		$base32 = new FixedBitNotation( 5, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567', true, true );
-
-		return $base32->encode( $secret );
-
-
 	}
 
 }

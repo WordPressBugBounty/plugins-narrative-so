@@ -48,10 +48,6 @@ class Admin {
 
 		add_filter( 'tiny_mce_before_init',
 			array( &$this, 'fb_change_mce_options' ) );
-
-		add_filter( 'pre_update_option_narrative_options',
-			array( &$this, 'update_option' ) );
-		add_action( 'admin_notices', array( &$this, 'admin_notices' ) );
 	}
 
 	/**
@@ -78,12 +74,12 @@ class Admin {
 	 */
 	public function add_menu_items() {
 
-		add_menu_page( esc_html__( 'Narrative', 'narrative-publisher' ),
-			esc_html__( 'Narrative', 'narrative-publisher' ), 'manage_options',
+		add_menu_page( esc_html__( 'Narrative', 'narrative-so' ),
+			esc_html__( 'Narrative', 'narrative-so' ), 'manage_options',
 			'narrative', array(
 				$this,
 				'setting_page',
-			), plugins_url( 'narrative-so/assets/narrative-brand-m.svg' ), 99 );
+			), plugins_url( 'assets/narrative-brand-m.svg', dirname( __FILE__ ) ), 99 );
 
 	}
 
@@ -91,7 +87,112 @@ class Admin {
 	 * Register settings page.
 	 */
 	public function settings_init() {
-		register_setting( 'narrative_settings', $this->options_slug );
+		register_setting(
+			'narrative_settings',
+			$this->options_slug,
+			array(
+				'type'              => 'array',
+				'sanitize_callback' => array( $this, 'sanitize_options' ),
+				'default'           => array(),
+			)
+		);
+	}
+
+	/**
+	 * Sanitize the settings before they are stored.
+	 *
+	 * Nothing used to validate the key: any string was accepted and reported as
+	 * a success, so a mistyped key failed silently and the only symptom was that
+	 * "Last connected" never moved.
+	 *
+	 * @param mixed $value Raw submitted value.
+	 *
+	 * @return array
+	 */
+	public function sanitize_options( $value ) {
+
+		$existing        = get_option( $this->options_slug );
+		$existing_secret = ( is_array( $existing ) && ! empty( $existing['secret'] ) )
+			? $existing['secret']
+			: '';
+
+		$submitted = ( is_array( $value ) && isset( $value['secret'] ) ) ? $value['secret'] : '';
+		$secret    = $this->normalize_secret( $submitted );
+
+		if ( '' === $secret ) {
+			add_settings_error(
+				$this->options_slug,
+				'narrative_secret_empty',
+				esc_html__( 'Please paste the Access Key from your Narrative app.', 'narrative-so' ),
+				'error'
+			);
+
+			return array( 'secret' => $existing_secret );
+		}
+
+		if ( ! $this->is_valid_secret( $secret ) ) {
+			add_settings_error(
+				$this->options_slug,
+				'narrative_secret_invalid',
+				esc_html__( 'That does not look like a valid Narrative Access Key. Copy it again from the Narrative app and paste it here. Your previous key has been kept.', 'narrative-so' ),
+				'error'
+			);
+
+			return array( 'secret' => $existing_secret );
+		}
+
+		add_settings_error(
+			$this->options_slug,
+			'narrative_secret_saved',
+			esc_html__( 'Access Key saved. Return to Narrative and publish a post to finish connecting.', 'narrative-so' ),
+			'success'
+		);
+
+		return array( 'secret' => $secret );
+	}
+
+	/**
+	 * Put a submitted key into the form the authenticator expects.
+	 *
+	 * Keys are base32, which is upper case. A lower case key stored fine and then
+	 * failed to decode on every request, with nothing to indicate why. Spaces are
+	 * stripped because keys are sometimes displayed in readable groups.
+	 *
+	 * @param mixed $secret Raw submitted key.
+	 *
+	 * @return string
+	 */
+	private function normalize_secret( $secret ) {
+
+		if ( ! is_string( $secret ) ) {
+			return '';
+		}
+
+		$secret = sanitize_text_field( $secret );
+
+		return strtoupper( preg_replace( '/\s+/', '', $secret ) );
+	}
+
+	/**
+	 * Check that a normalized key is one the authenticator can actually decode.
+	 *
+	 * Characters outside the base32 alphabet are skipped silently while decoding,
+	 * so a key containing them would decode to something other than the key
+	 * Narrative issued and would never authenticate.
+	 *
+	 * @param string $secret Normalized key.
+	 *
+	 * @return bool
+	 */
+	private function is_valid_secret( $secret ) {
+
+		if ( ! preg_match( '/^[A-Z2-7]+=*$/', $secret ) ) {
+			return false;
+		}
+
+		$base32 = new FixedBitNotation( 5, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567', true, true );
+
+		return '' !== $base32->decode( $secret );
 	}
 
 	/**
@@ -137,14 +238,20 @@ class Admin {
 	 */
 	public function admin_print_script() {
 
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- reading the post being edited, not acting on input.
 		if ( empty( $_GET['post'] ) ) {
 			return;
 		}
 
-		$get_post = sanitize_text_field( $_GET['post'] );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- as above.
+		$get_post = absint( wp_unslash( $_GET['post'] ) );
+
+		if ( ! current_user_can( 'edit_post', $get_post ) ) {
+			return;
+		}
 
 		$post_script = get_post_meta( $get_post, 'narrative_post_script',
-			TRUE );
+			true );
 
 		if ( empty( $post_script ) ) {
 			return;
@@ -166,7 +273,7 @@ class Admin {
 
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'You do not have sufficient permissions to access this page.',
-				'narrative-publisher' ) );
+				'narrative-so' ) );
 		}
 
 		/*
@@ -208,17 +315,14 @@ class Admin {
 		if ( ! is_admin() ) {
 			return;
 		}
-		wp_enqueue_script( 'moment',
-			plugins_url( 'assets/moment.min.js', dirname( __FILE__ ) ),
-			array( 'jquery' ), filemtime( plugin_dir_path( dirname( __FILE__ ) )
-			                              . 'assets/moment.min.js' ), TRUE );
-
+		// moment is bundled with WordPress; declaring it as a dependency is
+		// enough. Shipping our own copy overrode core's registration and is not
+		// permitted in the plugin directory.
 		wp_enqueue_script( 'narrative-admin-script',
 			plugins_url( 'assets/admin-script.js', dirname( __FILE__ ) ), array(
 				'jquery',
 				'moment',
-			), filemtime( plugin_dir_path( dirname( __FILE__ ) )
-			              . 'assets/admin-script.js' ), TRUE );
+			), NARRATIVE_PUBLISHER_VERSION, true );
 
 	}
 
@@ -228,11 +332,13 @@ class Admin {
 	 */
 	public function do_meta_boxes() {
 
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- reading the post being edited, not acting on input.
 		if ( empty( $_GET['post'] ) ) {
 			return;
 		}
 
-		$post = get_post( sanitize_text_field( $_GET['post'] ) );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- as above.
+		$post = get_post( absint( wp_unslash( $_GET['post'] ) ) );
 
 		if ( empty( $post->post_content ) ) {
 			return;
@@ -244,7 +350,7 @@ class Admin {
 		?>
         <a target="_blank" href="narrative-app://open/"
            class="button button-primary button-large narrative_open_app_button">
-			<?php esc_html_e( 'Edit in Narrative', 'narrative-publisher' ); ?>
+			<?php esc_html_e( 'Edit in Narrative', 'narrative-so' ); ?>
         </a>
 		<?php
 	}
@@ -260,31 +366,5 @@ class Admin {
 		return $init;
 	}
 
-	/**
-	 * Update option hook
-	 */
-	public function update_option( $value ) {
-		if ( ! empty( $_POST['narrative_options']['secret'] ) ) {
-			set_transient( 'narratibe_update_secret', 'true' );
-		}
-
-		return $value;
-	}
-
-	/**
-	 * Admin notices
-	 */
-	public function admin_notices() {
-
-		if ( get_transient( 'narratibe_update_secret' ) ) {
-			delete_transient( 'narratibe_update_secret' );
-			?>
-            <div class="notice notice-success is-dismissible">
-                <p><?php _e( 'Access Key added, please return to Narrative to publish your post',
-						'narrative-publisher' ); ?></p>
-            </div>
-			<?php
-		}
-	}
 
 }

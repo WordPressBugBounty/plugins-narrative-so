@@ -35,7 +35,7 @@ class Metabox {
 	public function register_meta_boxes() {
 		add_meta_box(
 			'narrative-meta-tags',
-			esc_html__( 'Narrative SEO', 'narrative-publisher' ),
+			esc_html__( 'Narrative SEO', 'narrative-so' ),
 			array(
 				$this,
 				'show_meta_boxes',
@@ -65,6 +65,7 @@ class Metabox {
 		if ( empty( $narrative_meta_title ) ) {
 			$title                = isset( $post->post_title ) ? $post->post_title : '';
 			$id                   = isset( $post->ID ) ? $post->ID : 0;
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- applying a core filter, not defining one.
 			$narrative_meta_title = apply_filters( 'the_title', $title, $id );
 		}
 
@@ -73,21 +74,21 @@ class Metabox {
             <table>
                 <tr>
                     <td>
-                        <strong><?php esc_html_e( 'Title', 'narrative-publisher' ); ?>:</strong></td>
+                        <strong><?php esc_html_e( 'Title', 'narrative-so' ); ?>:</strong></td>
                     <td>
                         <input style="padding: 6px 4px;" type="text" name="narrative_meta_title"
                                value="<?php echo esc_attr( $narrative_meta_title ); ?>"/>
                     </td>
                 </tr>
                 <tr>
-                    <td><strong><?php esc_html_e( 'Description', 'narrative-publisher' ); ?>:</strong></td>
+                    <td><strong><?php esc_html_e( 'Description', 'narrative-so' ); ?>:</strong></td>
                     <td>
                         <textarea rows="3" cols="22"
                                   name="narrative_meta_description"><?php echo esc_attr( $narrative_meta_description ); ?></textarea>
                     </td>
                 </tr>
                 <tr>
-                    <td><strong><?php esc_html_e( 'Keywords', 'narrative-publisher' ); ?>:</strong></td>
+                    <td><strong><?php esc_html_e( 'Keywords', 'narrative-so' ); ?>:</strong></td>
                     <td>
                         <input style="padding: 6px 4px; " type="text" name="narrative_meta_keywords"
                                value="<?php echo esc_attr( $narrative_meta_keywords ); ?>"/>
@@ -107,13 +108,13 @@ class Metabox {
 	 */
 	public function savePost( $post_id ) {
 
-		$nonce = sanitize_text_field( $_POST['narrative_metabox_nonce'] );
-
-		// Check if our nonce is set.
-		if ( empty( $nonce ) ) {
+		// Check if our nonce is set. Reading it unconditionally raised an
+		// undefined index warning on every save that did not come from this form.
+		if ( empty( $_POST['narrative_metabox_nonce'] ) ) {
 			return $post_id;
 		}
 
+		$nonce = sanitize_text_field( wp_unslash( $_POST['narrative_metabox_nonce'] ) );
 
 		// Verify that the nonce is valid.
 		if ( ! wp_verify_nonce( $nonce, 'narrative_nonce' ) ) {
@@ -136,9 +137,9 @@ class Metabox {
 		$old_keywords    = get_post_meta( $post_id, '_narrative_meta_keywords', true );
 
 		// Sanitize user input.
-		$title       = sanitize_text_field( $_POST['narrative_meta_title'] );
-		$description = sanitize_text_field( $_POST['narrative_meta_description'] );
-		$keywords    = sanitize_text_field( $_POST['narrative_meta_keywords'] );
+		$title       = isset( $_POST['narrative_meta_title'] ) ? sanitize_text_field( wp_unslash( $_POST['narrative_meta_title'] ) ) : '';
+		$description = isset( $_POST['narrative_meta_description'] ) ? sanitize_text_field( wp_unslash( $_POST['narrative_meta_description'] ) ) : '';
+		$keywords    = isset( $_POST['narrative_meta_keywords'] ) ? sanitize_text_field( wp_unslash( $_POST['narrative_meta_keywords'] ) ) : '';
 
 		// Update the meta field in the database.
 		update_post_meta( $post_id, '_narrative_meta_title', $title, $old_title );
@@ -160,6 +161,7 @@ class Metabox {
 
 		// Get post title if narrative_meta_title is not exist.
 		if ( empty( $narrative_meta_title ) ) {
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- applying a core filter, not defining one.
 			$narrative_meta_title = apply_filters( 'the_title', get_the_title(), get_the_ID() );
 		}
 
@@ -177,17 +179,46 @@ class Metabox {
 	 */
 	public function wp_enqueue_scripts() {
 
+		// Only single posts render a narrative body; skip the meta lookup elsewhere.
+		if ( ! is_singular() ) {
+			return;
+		}
+
 		$body = get_post_meta( get_the_ID(), 'narrative_post_script', true );
+
+		if ( empty( $body ) ) {
+			return;
+		}
+
 		$body = stripslashes( base64_decode( $body ) );
 
-		$pattern = '/\<script.*?src=(?:(?:\'([^\']*)\')|(?:"([^"]*)")|([^\s]*))/';
+		$pattern = '#<script[^>]*?src=(?:(?:\'([^\']*)\')|(?:"([^"]*)")|([^\s>]+))#i';
 
-		preg_match( $pattern, $body, $matches );
-
-		if ( ! empty( $matches[2] ) ) {
-
-			wp_enqueue_script( 'narrative-publisher-script', $matches[2], null, '', true );
+		if ( ! preg_match( $pattern, $body, $matches ) ) {
+			return;
 		}
+
+		// Take whichever quoting style matched. Only the double quoted group was
+		// read before, so single quoted and bare src attributes were ignored.
+		$src = '';
+
+		foreach ( array( 1, 2, 3 ) as $group ) {
+			if ( ! empty( $matches[ $group ] ) ) {
+				$src = $matches[ $group ];
+				break;
+			}
+		}
+
+		// Constrain to http(s) so a stored javascript: or data: URL cannot be
+		// enqueued out of post meta.
+		$src = esc_url_raw( $src, array( 'http', 'https' ) );
+
+		if ( empty( $src ) ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.WP.EnqueuedResourceParameters.MissingVersion -- third-party story URL; a ver arg could break a signed URL.
+		wp_enqueue_script( 'narrative-publisher-script', $src, array(), null, true );
 	}
 
 

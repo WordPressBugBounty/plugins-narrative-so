@@ -13,9 +13,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 
-$admin = new Admin();
+$narrative_admin = new Admin();
+
+$narrative_secret       = $narrative_admin->general_options( 'secret' );
+$narrative_last_request = get_option( 'narrative_last_request' );
 ?>
 <div class="wrap narrative-settings">
+
+	<?php settings_errors( $narrative_admin->options_slug ); ?>
 
     <form method="post" action="options.php" novalidate="novalidate">
         <img src="<?php echo esc_url( plugins_url( 'assets/narrative-brand.svg', dirname( __FILE__ ) ) ); ?>"
@@ -27,42 +32,45 @@ $admin = new Admin();
             <tr>
                 <td width="150">
                     <label for="">
-                        <b><?php esc_html_e( 'Your Access Key', 'narrative-publisher' ); ?></b>:
+                        <b><?php esc_html_e( 'Your Access Key', 'narrative-so' ); ?></b>:
                     </label>
                 </td>
                 <td class="field">
                     <label for="">
 
                         <input class="form-control" type="password"
-                               name="<?php echo esc_attr( $admin->options_slug ); ?>[secret]"
+                               name="<?php echo esc_attr( $narrative_admin->options_slug ); ?>[secret]"
                                id="access_key"
-                               placeholder="" value="<?php echo esc_attr( $admin->general_options( 'secret' ) ); ?>"
-                               data-notice="<?php esc_html_e( 'Are you sure you want to change your Narrative Access Key, doing so may stop your plugin from working?', 'narrative-publisher' ); ?>">
+                               autocomplete="off"
+                               spellcheck="false"
+                               placeholder="" value="<?php echo esc_attr( $narrative_secret ); ?>"
+                               data-notice="<?php esc_attr_e( 'Replace your existing Narrative Access Key? Publishing will stop working until the new key connects.', 'narrative-so' ); ?>">
                     </label>
                 </td>
             </tr>
-			<?php if ( ! empty( get_option( 'narrative_last_request' ) ) && is_numeric( get_option( 'narrative_last_request' ) ) ): ?>
-                <tr>
-                    <td width="150">
-						<?php esc_html_e( 'Last connected', 'narrative-publisher' ); ?>:
-                    </td>
-                    <td class="field">
-	                    <?php if ( empty( $admin->general_options( 'secret' ) ) ) : ?>
-                            <b style="color: red;font-size: 14px;"><?php esc_html_e( 'Not connected. Please paste your access key from your Narrative app', 'narrative-publisher' ); ?></b>
-	                    <?php else: ?>
-                            <span class="nar-last-last-request"
-                                  data-val="<?php echo esc_attr( get_option( 'narrative_last_request' ) ); ?>">
-                            </span>
-	                    <?php endif; ?>
-
-                    </td>
-                </tr>
-			<?php endif; ?>
+            <tr>
+                <td width="150">
+					<?php esc_html_e( 'Status', 'narrative-so' ); ?>:
+                </td>
+                <td class="field">
+					<?php if ( empty( $narrative_secret ) ) : ?>
+                        <b style="color: #d63638;font-size: 14px;"><?php esc_html_e( 'Not connected. Please paste your Access Key from your Narrative app.', 'narrative-so' ); ?></b>
+					<?php elseif ( empty( $narrative_last_request ) || ! is_numeric( $narrative_last_request ) ) : ?>
+                        <b style="color: #996800;font-size: 14px;"><?php esc_html_e( 'Access Key saved. Waiting for Narrative to connect — publish a post from the app to finish.', 'narrative-so' ); ?></b>
+					<?php else : ?>
+                        <b style="color: #008a20;font-size: 14px;"><?php esc_html_e( 'Connected', 'narrative-so' ); ?></b>
+                        &mdash; <?php esc_html_e( 'last connected', 'narrative-so' ); ?>
+                        <span class="nar-last-last-request"
+                              data-val="<?php echo esc_attr( $narrative_last_request ); ?>">
+                        </span>
+					<?php endif; ?>
+                </td>
+            </tr>
 
             <tr>
                 <td>
                     <a target="_blank" href="<?php echo esc_url( 'https://help.narrative.so/articles/2866370-narrative-wordpress-plugin' ); ?>">
-                        <?php esc_html_e( 'I need help', 'narrative-publisher' ); ?>
+                        <?php esc_html_e( 'I need help', 'narrative-so' ); ?>
                     </a>
                 </td>
             </tr>
@@ -78,10 +86,10 @@ $admin = new Admin();
         <hr>
 
         <p style="font-size: 14px;padding-top: 10px;">
-            <b><?php esc_html_e( 'This WordPress plugin integrates with Narrative\'s desktop app', 'narrative-publisher' ); ?></b>
+            <b><?php esc_html_e( 'This WordPress plugin integrates with Narrative\'s desktop app', 'narrative-so' ); ?></b>
             <br>
-            <a target="_blank" href="<?php echo esc_url( 'https://my.narrative.so/#/free-trial', 'narrative-publisher' ); ?>">
-                <?php esc_html_e( 'Click here to sign up', 'narrative-publisher' ); ?>
+            <a target="_blank" href="<?php echo esc_url( 'https://my.narrative.so/#/free-trial', 'narrative-so' ); ?>">
+                <?php esc_html_e( 'Click here to sign up', 'narrative-so' ); ?>
             </a>
         </p>
 

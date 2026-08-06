@@ -25,6 +25,20 @@ class Handlers {
 	}
 
 	/**
+	 * Load the admin plugin helpers on demand.
+	 *
+	 * These live in wp-admin and are not loaded on front end requests, which is
+	 * where the /narrative/ endpoints are served from.
+	 */
+	protected function load_plugin_helpers() {
+
+		if ( ! function_exists( 'is_plugin_active' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+	}
+
+	/**
 	 * Run a function after the request.
 	 *
 	 * @param string $type The request type.
@@ -37,12 +51,16 @@ class Handlers {
 
 		if ( 'post' === $type ) {
 
+			// Requests are authenticated by Authenticator::checkCode(), not by a nonce.
+			// phpcs:disable WordPress.Security.NonceVerification.Recommended
 			if ( ! empty( $_GET['post_id'] ) ) {
-				$post_id = sanitize_text_field( $_GET['post_id'] );
+				$post_id = absint( wp_unslash( $_GET['post_id'] ) );
 			} else {
-				$post_id = sanitize_text_field( get_query_var( 'post_id' ) );
+				$post_id = absint( get_query_var( 'post_id' ) );
 			}
+			// phpcs:enable WordPress.Security.NonceVerification.Recommended
 
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- reading the raw request body.
 			$data = file_get_contents( 'php://input' );
 
 			if ( ! empty( $data ) ) {
@@ -50,7 +68,7 @@ class Handlers {
 			} elseif ( ! empty( $post_id ) ) {
 				$this->get_post( $post_id );
 			} else {
-				header( 'HTTP/1.1 404' );
+				status_header( 404 );
 			}
 		}
 	}
@@ -60,9 +78,11 @@ class Handlers {
 	 */
 	private function get_info() {
 
+		$this->load_plugin_helpers();
+
 		$results = array();
 
-		$results['plugin_version'] = '1.0.7';
+		$results['plugin_version'] = NARRATIVE_PUBLISHER_VERSION;
 
 		/**
 		 * Get WordPress version
@@ -86,7 +106,7 @@ class Handlers {
 
 		$categories = array();
 		foreach (
-			get_categories( array( 'hide_empty' => FALSE ) ) as $category
+			get_categories( array( 'hide_empty' => false ) ) as $category
 		) {
 			$categories[] = $category->name;
 		}
@@ -116,7 +136,7 @@ class Handlers {
 			$this->render_data( $results );
 
 		} else {
-			header( 'HTTP/1.1 404"' );
+			status_header( 404 );
 			die();
 		}
 
@@ -125,8 +145,8 @@ class Handlers {
 	/**
 	 * Get param.
 	 *
-	 * @param array  $decoded_params
-	 * @param string $key
+	 * @param array  $decoded_params All decoded params.
+	 * @param string $key            The param to read.
 	 *
 	 * @return string
 	 */
@@ -162,7 +182,7 @@ class Handlers {
 			return '';
 		}
 
-		$decoded_params = json_decode( $json_params, TRUE );
+		$decoded_params = json_decode( $json_params, true );
 
 		if ( empty( $decoded_params ) ) {
 			return '';
@@ -170,10 +190,12 @@ class Handlers {
 
 		if ( ! empty( $decoded_params ) && is_array( $decoded_params ) ) {
 
+			$this->load_plugin_helpers();
+
 			$name = sanitize_text_field( $this->get_param( $decoded_params,
 				'name' ) );
 
-			$slug = sanitize_text_field( $this->get_param( $decoded_params,
+			$slug = sanitize_title( $this->get_param( $decoded_params,
 				'slug' ) );
 
 			$meta_description
@@ -188,7 +210,7 @@ class Handlers {
 				= sanitize_text_field( $this->get_param( $decoded_params,
 				'metaKeywords' ) );
 
-			$image_url = sanitize_text_field( $this->get_param( $decoded_params,
+			$image_url = esc_url_raw( $this->get_param( $decoded_params,
 				'featuredImageLink' ) );
 
 			$excerpt
@@ -228,7 +250,7 @@ class Handlers {
 
 				// Add block if version of WordPress 5+.
 				if ( is_plugin_active( 'gutenberg/gutenberg.php' )
-				     || version_compare( $wp_version, '5.0', '>=' )
+					 || version_compare( $wp_version, '5.0', '>=' )
 				) {
 					$args['post_content'] = '<!-- wp:narrative/block /-->';
 				}
@@ -241,6 +263,11 @@ class Handlers {
 				// Create a new post.
 				$post_id = wp_insert_post( $args );
 
+			}
+
+			if ( empty( $post_id ) || is_wp_error( $post_id ) ) {
+				status_header( 500 );
+				die();
 			}
 
 			update_post_meta( $post_id, 'narrative_post_script', $body );
@@ -265,10 +292,6 @@ class Handlers {
 			 * Add featured image
 			 */
 			$this->download_image( $image_url, $post_id );
-
-			// back filters.
-			add_filter( 'content_save_pre', 'wp_filter_post_kses' );
-			add_filter( 'content_filtered_save_pre', 'wp_filter_post_kses' );
 
 			/*
 			 * Return results
@@ -295,7 +318,12 @@ class Handlers {
 	private function render_data( $results ) {
 		if ( ! empty( $results ) && is_array( $results ) ) {
 			$this->save_time_request();
-			echo json_encode( $results );
+
+			if ( ! headers_sent() ) {
+				header( 'Content-Type: application/json; charset=' . get_option( 'blog_charset' ) );
+			}
+
+			echo wp_json_encode( $results );
 		}
 
 		die();
@@ -312,94 +340,166 @@ class Handlers {
 	private function is_valid_json( $str ) {
 		json_decode( $str );
 
-		return json_last_error() == JSON_ERROR_NONE;
+		return json_last_error() === JSON_ERROR_NONE;
 	}
 
 	/**
 	 * Check if the string is base64.
 	 *
+	 * This round trips through base64_decode()/base64_encode() rather than
+	 * matching a character class, because the old pattern also matched ordinary
+	 * alphanumeric text and left such bodies stored un-encoded.
+	 *
 	 * @param string $str Base 64 string.
 	 *
 	 * @return bool
 	 */
-	function is_base64( $str ) {
-		return (bool) preg_match( '/^[a-zA-Z0-9\/\r\n+]*={0,2}$/', $str );
+	public function is_base64( $str ) {
+
+		if ( ! is_string( $str ) || '' === $str ) {
+			return false;
+		}
+
+		// Encoders wrap long output; ignore the line breaks when comparing.
+		$normalized = preg_replace( '/\s+/', '', $str );
+
+		if ( '' === $normalized ) {
+			return false;
+		}
+
+		$decoded = base64_decode( $normalized, true );
+
+		if ( false === $decoded ) {
+			return false;
+		}
+
+		return base64_encode( $decoded ) === $normalized;
 	}
 
 	/**
-	 * @param $image_url
-	 * @param $post_id
+	 * Sideload the featured image and attach it to the post.
 	 *
-	 * @return string
+	 * @param string $image_url Remote image URL.
+	 * @param int    $post_id   Post to attach the image to.
 	 */
 	private function download_image( $image_url, $post_id ) {
 
-		// Set upload folder.
-		$upload_dir = wp_upload_dir();
+		if ( empty( $image_url ) ) {
+			return;
+		}
 
-		// Create image file name.
-		$filename = basename( $image_url );
+		// Rejects non-http(s) schemes and hosts that resolve to the local network.
+		$image_url = wp_http_validate_url( $image_url );
 
-		$filename_crop = substr( sanitize_file_name( $filename ), 0, - 4 );
+		if ( false === $image_url ) {
+			return;
+		}
 
-		$attach_id = $this->get_image_id_by_name( $filename_crop );
+		$path = wp_parse_url( $image_url, PHP_URL_PATH );
+
+		if ( empty( $path ) ) {
+			return;
+		}
+
+		$filename = sanitize_file_name( wp_basename( $path ) );
+
+		if ( empty( $filename ) ) {
+			return;
+		}
+
+		// Reuse the attachment if this image has already been sideloaded.
+		$attach_id = $this->get_image_id_by_name( pathinfo( $filename, PATHINFO_FILENAME ) );
 
 		if ( ! empty( $attach_id ) ) {
-			// And finally assign featured image to post.
 			set_post_thumbnail( $post_id, $attach_id );
 
-			return '';
+			return;
 		}
 
-		$image_data = file_get_contents( $image_url ); // Get image data.
+		/*
+		 * Refuse anything that is not an image before it reaches the filesystem.
+		 * The previous implementation wrote the remote response body straight
+		 * into the uploads directory under the caller supplied filename, which
+		 * allowed arbitrary file types — including .php — to be written there.
+		 */
+		$filetype = wp_check_filetype( $filename );
 
-
-		// Check folder permission and define file location.
-		if ( wp_mkdir_p( $upload_dir['path'] ) ) {
-			$file = $upload_dir['path'] . '/' . $filename;
-		} else {
-			$file = $upload_dir['basedir'] . '/' . $filename;
+		if ( empty( $filetype['type'] ) || 0 !== strpos( $filetype['type'], 'image/' ) ) {
+			return;
 		}
 
-		// Create the image  file on the server.
-		file_put_contents( $file, $image_data );
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		require_once ABSPATH . 'wp-admin/includes/media.php';
+		require_once ABSPATH . 'wp-admin/includes/image.php';
 
-		// Check image file type.
-		$wp_filetype = wp_check_filetype( $filename, NULL );
+		// download_url() fetches via wp_safe_remote_get(), so redirects cannot be
+		// used to reach internal hosts.
+		$tmp_file = download_url( $image_url );
 
+		if ( is_wp_error( $tmp_file ) ) {
+			return;
+		}
 
-		// Set attachment data.
-		$attachment = array(
-			'guid'           => $upload_dir['url'] . '/' . $filename,
-			'post_mime_type' => $wp_filetype['type'],
-			'post_title'     => $filename_crop,
-			'post_content'   => '',
-			'post_status'    => 'inherit',
+		$file = array(
+			'name'     => $filename,
+			'tmp_name' => $tmp_file,
 		);
 
+		// Re-checks that the file contents actually match the extension, and
+		// removes tmp_name on success.
+		$attach_id = media_handle_sideload( $file, $post_id );
 
-		// Create the attachment.
-		$attach_id = wp_insert_attachment( $attachment, $file, $post_id );
+		if ( is_wp_error( $attach_id ) ) {
+			wp_delete_file( $tmp_file );
 
-		require_once( ABSPATH . 'wp-admin/includes/image.php' );
+			return;
+		}
 
-		// Define attachment metadata.
-		$attach_data = wp_generate_attachment_metadata( $attach_id, $file );
-
-		// Assign metadata to attachment.
-		wp_update_attachment_metadata( $attach_id, $attach_data );
-
-
-		// And finally assign featured image to post.
 		set_post_thumbnail( $post_id, $attach_id );
 
+	}
+
+	/**
+	 * Filter a decoded story body for output on the front end.
+	 *
+	 * wp_kses_post() alone drops <iframe>, which stories use for embedded video,
+	 * so the standard post allowlist is extended with a constrained iframe. kses
+	 * still applies wp_kses_bad_protocol() to src, so a javascript: URL cannot
+	 * survive. Script tags and event handler attributes are still removed — the
+	 * story's own script is enqueued separately by Metabox::wp_enqueue_scripts().
+	 *
+	 * @param string $body Decoded story markup.
+	 *
+	 * @return string
+	 */
+	public static function filter_story_html( $body ) {
+
+		$allowed = wp_kses_allowed_html( 'post' );
+
+		$allowed['iframe'] = array(
+			'src'             => true,
+			'width'           => true,
+			'height'          => true,
+			'title'           => true,
+			'class'           => true,
+			'id'              => true,
+			'style'           => true,
+			'loading'         => true,
+			'frameborder'     => true,
+			'scrolling'       => true,
+			'allow'           => true,
+			'allowfullscreen' => true,
+			'referrerpolicy'  => true,
+		);
+
+		return wp_kses( $body, $allowed );
 	}
 
 	/**
 	 * Update time of request.
 	 */
 	public static function save_time_request() {
-		update_option( 'narrative_last_request', date( 'U' ) );
+		update_option( 'narrative_last_request', time() );
 	}
 
 	/**
@@ -411,10 +511,19 @@ class Handlers {
 	 */
 	public static function get_image_id_by_name( $filename ) {
 
+		if ( empty( $filename ) ) {
+			return null;
+		}
+
 		global $wpdb;
 
-		return $wpdb->get_var( $wpdb->prepare( "SELECT ID FROM $wpdb->posts WHERE post_title = %s LIMIT 1;",
-			$filename ) );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		return $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT ID FROM $wpdb->posts WHERE post_title = %s AND post_type = 'attachment' LIMIT 1;",
+				$filename
+			)
+		);
 	}
 
 

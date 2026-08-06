@@ -49,7 +49,7 @@ class Request extends Handlers {
 		if ( ! NARRATIVE_PUBLISHER_AUTH_DISABLED ) {
 
 			if ( empty( $general_option['secret'] ) ) {
-				header( 'HTTP/1.1 422' );
+				status_header( 422 );
 				die();
 			}
 		}
@@ -62,7 +62,7 @@ class Request extends Handlers {
 			if ( ! NARRATIVE_PUBLISHER_AUTH_DISABLED ) {
 				if ( ! $auth->checkCode( $general_option['secret'], $this->getToken() ) ) {
 
-					header( 'HTTP/1.1 422' );
+					status_header( 422 );
 					die();
 
 				}
@@ -75,7 +75,7 @@ class Request extends Handlers {
 			/**
 			 * Get info
 			 */
-			if ( sanitize_text_field( get_query_var( 'narrative' ) ) == 'info' ) {
+			if ( sanitize_text_field( get_query_var( 'narrative' ) ) === 'info' ) {
 				$this->work( 'info' );
 				die();
 			}
@@ -83,13 +83,13 @@ class Request extends Handlers {
 			/**
 			 * Get post
 			 */
-			if ( sanitize_text_field( get_query_var( 'narrative' ) ) == 'post' ) {
+			if ( sanitize_text_field( get_query_var( 'narrative' ) ) === 'post' ) {
 				$this->work( 'post' );
 				die();
 			}
 		} else {
 
-			header( 'HTTP/1.1 404' );
+			status_header( 404 );
 			die();
 		}
 
@@ -106,7 +106,7 @@ class Request extends Handlers {
 		if ( ! NARRATIVE_PUBLISHER_AUTH_DISABLED ) {
 
 			if ( empty( $general_option['secret'] ) ) {
-				header( 'HTTP/1.1 422' );
+				status_header( 422 );
 				die();
 			}
 		}
@@ -119,7 +119,7 @@ class Request extends Handlers {
 			if ( ! NARRATIVE_PUBLISHER_AUTH_DISABLED ) {
 				if ( ! $auth->checkCode( $general_option['secret'], $this->getToken() ) ) {
 
-					header( 'HTTP/1.1 422' );
+					status_header( 422 );
 					die();
 
 				}
@@ -129,7 +129,9 @@ class Request extends Handlers {
 			header( 'Cache-Control: post-check=0, pre-check=0', false );
 			header( 'Pragma: no-cache' );
 
-			if ( ! empty( $_GET['type'] ) && 'info' === sanitize_text_field( $_GET['type'] ) ) {
+			// Authenticated above by Authenticator::checkCode(), not by a nonce.
+			// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			if ( ! empty( $_GET['type'] ) && 'info' === sanitize_text_field( wp_unslash( $_GET['type'] ) ) ) {
 				$this->work( 'info' );
 			} else {
 				/**
@@ -140,7 +142,7 @@ class Request extends Handlers {
 
 		} else {
 
-			header( 'HTTP/1.1 404' );
+			status_header( 404 );
 
 		}
 
@@ -152,14 +154,14 @@ class Request extends Handlers {
 	private function getAuthorizationHeader() {
 		$headers = null;
 		if ( isset( $_SERVER['Authorization'] ) ) {
-			$headers = trim( $_SERVER["Authorization"] );
+			$headers = trim( sanitize_text_field( wp_unslash( $_SERVER['Authorization'] ) ) );
 		}
 		if ( isset( $_SERVER['Auth'] ) ) {
-			$headers = trim( $_SERVER["Auth"] );
+			$headers = trim( sanitize_text_field( wp_unslash( $_SERVER['Auth'] ) ) );
 		} else if ( isset( $_SERVER['HTTP_AUTHORIZATION'] ) ) { //Nginx or fast CGI
-			$headers = trim( $_SERVER["HTTP_AUTHORIZATION"] );
+			$headers = trim( sanitize_text_field( wp_unslash( $_SERVER['HTTP_AUTHORIZATION'] ) ) );
 		} else if ( isset( $_SERVER['HTTP_AUTH'] ) ) { //custom
-			$headers = trim( $_SERVER["HTTP_AUTH"] );
+			$headers = trim( sanitize_text_field( wp_unslash( $_SERVER['HTTP_AUTH'] ) ) );
 		} elseif ( function_exists( 'apache_request_headers' ) ) {
 			$requestHeaders = apache_request_headers();
 			// Server-side fix for bug in old Android versions (a nice side-effect of this fix means we don't care about capitalization for Authorization)

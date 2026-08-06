@@ -40,15 +40,13 @@ class Shortcodes {
 
 		$body = stripslashes( base64_decode( $body ) );
 
-		if ( ! empty( $body ) ) {
-
-			ob_start();
-			echo wp_kses_post( $body );
-
-			return ob_get_clean();
+		if ( empty( $body ) ) {
+			return '';
 		}
 
-		return '';
+		// A shortcode returns its output rather than echoing it; the value is
+		// run through wp_kses() inside filter_story_html().
+		return Handlers::filter_story_html( $body );
 	}
 
 }
